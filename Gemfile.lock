@@ -1,3 +1,11 @@
+PATH
+  remote: .
+  specs:
+    norminette (1.0.0alpha)
+      bunny
+      facter
+      json
+
 GEM
   remote: https://rubygems.org/
   specs:
@@ -13,9 +21,7 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
-  bunny
-  facter
-  json
+  norminette!
 
 BUNDLED WITH
    1.10.6
