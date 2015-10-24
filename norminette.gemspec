@@ -5,7 +5,7 @@ Gem::Specification.new do |spec|
 	spec.author = 'Bocal 42'
 	spec.description = 'A command-line tool to check files follow the 42 norme'
 	spec.executables = ['norminette']
-	spec.files = 'norminette'
+	spec.files = 'bin/norminette'
 	spec.name = 'norminette'
 	spec.version = '1.0.0alpha'
 end
