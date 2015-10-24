@@ -1,64 +1,175 @@
-#!/usr/bin/env /usr/bin/rbx
+#!/usr/bin/env ruby
 
 require 'bundler'
-current_path = Dir.pwd
+require 'optparse'
 
-# is file a symlink ? Yes -> get real path (follow the symlink correctly) No -> get path
+$current_path = Dir.pwd
 
 if File.symlink?(__FILE__)
-    dir = File.expand_path(File.dirname(File.expand_path(__FILE__)) + "/" + File.dirname(File.readlink(__FILE__)))
-    Dir.chdir dir
+	    dir = File.expand_path(File.dirname(File.expand_path(__FILE__)) + "/" + File.dirname(File.readlink(__FILE__)))
+		    Dir.chdir dir
 else
-	dir = File.expand_path(File.dirname(__FILE__))
-	Dir.chdir dir
+	    dir = File.expand_path(File.dirname(__FILE__))
+		    Dir.chdir dir
 end
 
 Bundler.require
 
-require 'active_support/core_ext/string'
+class Sender
+	def initialize &block
+		@conn = Bunny.new 	hostname: 	"127.0.0.1",
+							vhost: 		"/",
+							user: 		"guest",
+							password: 	"guest"
+		
+		@conn.start
+		@ch 			= @conn.create_channel
+		@x  			= @ch.default_exchange
+		@reply_queue    = @ch.queue("", exclusive: true)
+		@lock      		= Mutex.new
+		@condition 		= ConditionVariable.new
+		@routing_key	= "norminette"
+		@counter		= 0
 
-Dir.chdir current_path
+		@reply_queue.subscribe do |delivery_info, properties, payload|
+			@counter -= 1
+			block.call delivery_info, properties, payload
+	    	@lock.synchronize { @condition.signal }
+	  	end
 
-if Dir.exists? "#{dir}/compiled"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/debug"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/version"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/rules"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/my_parser"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/finder"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/comment"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/parser"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/checker"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/source"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/error"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/pos"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/cache"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/rediscache"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/sqlitecache"
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/stats"
-	Dir["#{dir}/compiled/rules/*.rbc"].each {|filename| Rubinius::CodeLoader.require_compiled filename}
-	Rubinius::CodeLoader.require_compiled "#{dir}/compiled/engine/run"
+	  	at_exit { desinitialize }
+	end
 
-	debug "Mode compile"
-else
-	require_relative 'src/engine/debug'
-	require_relative 'src/engine/version'
-	require_relative 'src/rules'
-	require_relative 'src/engine/my_parser'
-	require_relative 'src/engine/finder'
-	require_relative 'src/engine/comment'
-	require_relative 'src/engine/parser'
-	require_relative 'src/engine/checker'
-	require_relative 'src/engine/source'
-	require_relative 'src/engine/error'
-	require_relative 'src/engine/pos'
-	require_relative 'src/engine/cache'
-	require_relative 'src/engine/rediscache'
-	require_relative 'src/engine/sqlitecache'
-	require_relative 'src/engine/stats'
-	Dir['./src/rules/*.rb'].each {|filename| require_relative filename}
-	require_relative 'src/engine/run'
+	def desinitialize
+		@ch.close if @ch
+		@conn.close if @conn
+	end
 
-	debug "Mode non compile"
+	def publish content
+		@counter += 1
+		@x.publish content,	routing_key:  @routing_key,
+							reply_to:     @reply_queue.name
+	end
+
+	def sync_if_needed max = Facter.value('processors')['count']
+		@lock.synchronize { @condition.wait(@lock) } if @counter >= max
+	end
+
+	def sync
+		sync_if_needed 0 until @counter == 0
+	end
 end
 
-Dir.chdir current_path
+
+
+class Norminette
+	def initialize
+		@files			= []
+		@sender 		= Sender.new do |delivery_info, properties, payload|
+	    	manage_result JSON.parse(payload)
+		end
+	end
+
+	def check files_or_directories, options
+		if options.version
+			version 
+		else
+			populate_recursive files_or_directories.any? ? files_or_directories : ["."]
+			send_files options
+		end
+
+		@sender.sync
+	end
+
+	private
+
+	def populate_recursive objects
+		objects.each do |object|
+			if File.directory? object
+				populate_recursive Dir["#{object}/*"]
+			else
+				populate_file object
+			end
+		end
+	end
+
+	def version
+		puts "Local version:\n1.0.0.alpha"
+		puts "Norminette version:"
+		send_content({action: "version"}.to_json)
+	end
+
+	def file_description file, opts = {}
+		({filename: file, content: File.read(file)}.merge(opts)).to_json
+	end
+
+	def is_a_valid_file? file
+		File.file? file and File.exists? file and file =~ /\.[ch]\z/
+	end
+
+	def populate_file file
+		file = (Pathname.new(file).absolute? ? file : File.join($current_path, file))
+		unless is_a_valid_file? file
+			manage_result 'filename' => file, 'display' => "Warning: Not a valid file"
+			return
+		end
+
+		@files << file
+	end
+
+	def send_files options
+		@files.each do |file|
+			send_file file, options.rules
+			@sender.sync_if_needed
+		end
+	end
+
+	def send_file file, rules
+		send_content file_description(file, rules: rules)
+	end
+
+	def send_content content
+		@sender.publish content
+	end
+
+	def manage_result result		
+		puts "Norme: #{result['filename']}" 	if result['filename']
+		puts result['display']	 				if result['display']
+		exit 0 									if result['stop'] == true
+	end
+end
+
+class Parser
+  def self.parse(options)
+  	args 	= OpenStruct.new
+    opt_parser = OptionParser.new do |opts|
+      opts.banner = "Usage: #$0 [options] [files_or_directories]"
+
+      opts.on("-v", "--version", "Print version") do |n|
+      	args.version = true
+      end
+
+      opts.on("-R", "--rules Array", Array, "Rule to disable") do |rules|
+      	args.rules = rules
+      end
+
+      opts.on("-h", "--help", "Prints this help") do
+  		sender 	= Sender.new do |delivery_info, properties, payload|
+  			puts JSON.parse(payload)['display']
+		end
+
+        puts opts
+        puts "Norminette usage:"
+        sender.publish({action: "help"}.to_json)
+        sender.sync
+        exit
+      end
+    end
+
+    opt_parser.parse!(options) rescue abort $!.to_s
+
+    return args
+  end
+end
+
+Norminette.new.check ARGV, Parser.parse(ARGV) if __FILE__ == $0
