@@ -14,10 +14,13 @@ else
 end
 
 Bundler.require
+require 'bunny'
+require 'facter'
+require 'json'
 
 class Sender
 	def initialize &block
-		@conn = Bunny.new 	hostname: 	"127.0.0.1",
+		@conn = Bunny.new 	hostname: 	"norminette.42.fr",
 							vhost: 		"/",
 							user: 		"guest",
 							password: 	"guest"
