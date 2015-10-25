@@ -175,4 +175,4 @@ class Parser
   end
 end
 
-Norminette.new.check ARGV, Parser.parse(ARGV) if __FILE__ == $0
+Norminette.new.check ARGV, Parser.parse(ARGV)
