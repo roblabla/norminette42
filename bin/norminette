@@ -77,7 +77,7 @@ class Norminette
 		if options.version
 			version 
 		else
-			populate_recursive files_or_directories.any? ? files_or_directories : ["."]
+			populate_recursive files_or_directories.any? ? files_or_directories : [$current_path]
 			send_files options
 		end
 
