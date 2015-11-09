@@ -8,5 +8,5 @@ Gem::Specification.new do |spec|
 	spec.executables = ['norminette']
 	spec.files = 'bin/norminette'
 	spec.name = 'norminette'
-	spec.version = '1.0.0.alpha1'
+	spec.version = '1.0.0.rc1-0'
 end

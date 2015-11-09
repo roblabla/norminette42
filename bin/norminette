@@ -88,6 +88,8 @@ class Norminette
 
 	def populate_recursive objects
 		objects.each do |object|
+			object = (Pathname.new(object).absolute? ? object : File.join($current_path, object))
+
 			if File.directory? object
 				populate_recursive Dir["#{object}/*"]
 			else
@@ -97,7 +99,7 @@ class Norminette
 	end
 
 	def version
-		puts "Local version:\n1.0.0.alpha"
+		puts "Local version:\n1.0.0.rc1"
 		puts "Norminette version:"
 		send_content({action: "version"}.to_json)
 	end
