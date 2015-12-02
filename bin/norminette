@@ -51,7 +51,8 @@ class Sender
 	def publish content
 		@counter += 1
 		@x.publish content,	routing_key:  @routing_key,
-							reply_to:     @reply_queue.name
+							reply_to:     @reply_queue.name,
+							correlation_id: SecureRandom.uuid
 	end
 
 	def sync_if_needed max = Facter.value('processors')['count']
@@ -99,7 +100,7 @@ class Norminette
 	end
 
 	def version
-		puts "Local version:\n1.0.0.rc1"
+		puts "Local version:\n1.0.0.rc2"
 		puts "Norminette version:"
 		send_content({action: "version"}.to_json)
 	end
@@ -113,7 +114,6 @@ class Norminette
 	end
 
 	def populate_file file
-		file = (Pathname.new(file).absolute? ? file : File.join($current_path, file))
 		unless is_a_valid_file? file
 			manage_result 'filename' => file, 'display' => "Warning: Not a valid file"
 			return
@@ -137,8 +137,12 @@ class Norminette
 		@sender.publish content
 	end
 
+	def cleanify_path filename
+		File.expand_path(filename).gsub(/^#$current_path\/?/, "./")
+	end
+
 	def manage_result result		
-		puts "Norme: #{result['filename']}" 	if result['filename']
+		puts "Norme: #{cleanify_path(result['filename'])}"	if result['filename']
 		puts result['display']	 				if result['display']
 		exit 0 									if result['stop'] == true
 	end
