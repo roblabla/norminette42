@@ -1,14 +1,11 @@
 #!/usr/bin/env ruby
 
-require 'bundler'
 require 'optparse'
-
-$current_path = Dir.pwd
-
-Bundler.require
 require 'bunny'
 require 'facter'
 require 'json'
+
+$current_path = Dir.pwd
 
 class Sender
 	def initialize &block
